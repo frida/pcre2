@@ -6,6 +6,11 @@ project('pcre2', 'c',
 
 c_compiler = meson.get_compiler('c')
 
+# Suppress all compiler warnings when we're a subproject
+if meson.is_subproject() and c_compiler.get_argument_syntax() != 'msvc'
+  add_project_arguments('-w', language : 'c')
+endif
+
 pcre2_h = configure_file(input : 'src/pcre2.h.generic',
   output : 'pcre2.h',
   copy: true)
