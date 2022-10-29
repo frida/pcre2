@@ -1,6 +1,6 @@
 project('pcre2', 'c',
   license: 'BSD-3',
-  meson_version: '>=0.49.0',
+  meson_version: '>=0.60.0',
   version: '10.41',
 )
 
