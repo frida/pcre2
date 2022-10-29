@@ -131,6 +131,11 @@ libpcre2_32 = declare_dependency(link_with: pcre2_32_lib,
   include_directories: includes,
   compile_args: static_defs)
 
+meson.override_dependency('libpcre2-8', libpcre2_8)
+meson.override_dependency('libpcre2-posix', libpcre2_posix)
+meson.override_dependency('libpcre2-16', libpcre2_16)
+meson.override_dependency('libpcre2-32', libpcre2_32)
+
 if get_option('grep')
   pcre2grep = executable('pcre2grep', ['src/pcre2grep.c'],
     include_directories: includes,
