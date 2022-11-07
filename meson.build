@@ -2,6 +2,9 @@ project('pcre2', 'c',
   license: 'BSD-3',
   meson_version: '>=0.60.0',
   version: '10.41',
+  default_options: [
+    'c_std=gnu99',
+  ],
 )
 
 c_compiler = meson.get_compiler('c')
