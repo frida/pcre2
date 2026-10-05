@@ -61,6 +61,12 @@
     aaaabbbbzzzz\=ovector=1
     aaaabbbbzzzz\=ovector=2
 
+/(a)(b)/
+    ab\=posix_startend=0:2,ovector=1
+    ab\=posix_startend=0:2,ovector=0
+    ab\=posix_startend=1:2,ovector=1
+    ab\=posix_startend=1:2,ovector=0
+
 /(*ANY)ab.cd/
     ab-cd
     ab=cd
@@ -107,6 +113,22 @@
 
 /\[A]{1000000}**/expand,regerror_buffsize=32
 
+/a(b/regerror_buffsize=0
+
+/a(b/regerror_buffsize=1
+
+/a(b/regerror_buffsize=12
+
+/a(b/regerror_buffsize=13
+
+/a(b/regerror_buffsize=14
+
+/a(b/regerror_buffsize=15
+
+/a(b/regerror_buffsize=25
+
+/a(b/regerror_buffsize=26
+
 //posix_nosub
     \=offset=70000
 
@@ -143,5 +165,18 @@
 /(*LIMIT_HEAP=0)xx/posix
 \= Expect error
     xxxx 
+
+/(*LIMIT_DEPTH=1)(a)/
+    a
+
+/(*LIMIT_MATCH=1)(a)/
+    a
+
+/(?R)/
+    a
+
+/(?(DEFINE)(?<sneaky>b\K))a(?=(?&sneaky))/
+    ab
+    zz
 
 # End of testdata/testinput18

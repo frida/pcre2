@@ -7,7 +7,7 @@ and semantics are as close as possible to those of the Perl 5 language.
 
                        Written by Philip Hazel
      Original API code Copyright (c) 1997-2012 University of Cambridge
-          New API code Copyright (c) 2016-2022 University of Cambridge
+          New API code Copyright (c) 2016-2024 University of Cambridge
 
 -----------------------------------------------------------------------------
 Redistribution and use in source and binary forms, with or without
@@ -39,10 +39,6 @@ POSSIBILITY OF SUCH DAMAGE.
 */
 
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
-
 #include "pcre2_internal.h"
 
 
@@ -51,22 +47,39 @@ POSSIBILITY OF SUCH DAMAGE.
 *  Create a match data block given ovector size  *
 *************************************************/
 
-/* A minimum of 1 is imposed on the number of ovector pairs. */
+/* A minimum of 1 is imposed on the number of ovector pairs. A maximum is also
+imposed because the oveccount field in a match data block is uint16_t. */
 
-PCRE2_EXP_DEFN pcre2_match_data * PCRE2_CALL_CONVENTION
+PCRE2_EXP_DEFN pcre2_match_data *PCRE2_CALL_CONVENTION
 pcre2_match_data_create(uint32_t oveccount, pcre2_general_context *gcontext)
 {
-pcre2_match_data *yield;
-if (oveccount < 1) oveccount = 1;
-yield = PRIV(memctl_malloc)(
-  offsetof(pcre2_match_data, ovector) + 2*oveccount*sizeof(PCRE2_SIZE),
-  (pcre2_memctl *)gcontext);
-if (yield == NULL) return NULL;
-yield->oveccount = oveccount;
-yield->flags = 0;
-yield->heapframes = NULL;
-yield->heapframes_size = 0;
-return yield;
+  if (oveccount < 1)
+    oveccount = 1;
+  if (oveccount > UINT16_MAX)
+    oveccount = UINT16_MAX;
+
+  pcre2_match_data *yield =
+      PRIV(memctl_malloc)(offsetof(pcre2_match_data, ovector) + 2 * oveccount * sizeof(PCRE2_SIZE),
+                          (pcre2_memctl *)gcontext);
+  if (yield == NULL)
+    return NULL;
+
+  yield->code = NULL;
+  yield->subject = NULL;
+  yield->mark = NULL;
+  yield->heapframes = NULL;
+  yield->heapframes_size = 0;
+  yield->subject_length = 0;
+  yield->start_offset = 0;
+  yield->leftchar = 0;
+  yield->rightchar = 0;
+  yield->startchar = 0;
+  yield->matchedby = 0;
+  yield->flags = 0;
+  yield->oveccount = oveccount;
+  yield->options = 0;
+  yield->rc = 0;
+  return yield;
 }
 
 
@@ -75,15 +88,18 @@ return yield;
 *  Create a match data block using pattern data  *
 *************************************************/
 
-/* If no context is supplied, use the memory allocator from the code. */
+/* If no context is supplied, use the memory allocator from the code. This code
+assumes that a general context contains nothing other than a memory allocator.
+If that ever changes, this code will need fixing. */
 
-PCRE2_EXP_DEFN pcre2_match_data * PCRE2_CALL_CONVENTION
-pcre2_match_data_create_from_pattern(const pcre2_code *code,
-  pcre2_general_context *gcontext)
+PCRE2_EXP_DEFN pcre2_match_data *PCRE2_CALL_CONVENTION
+pcre2_match_data_create_from_pattern(const pcre2_code *code, pcre2_general_context *gcontext)
 {
-if (gcontext == NULL) gcontext = (pcre2_general_context *)code;
-return pcre2_match_data_create(((pcre2_real_code *)code)->top_bracket + 1,
-  gcontext);
+  if (code == NULL)
+    return NULL;
+  if (gcontext == NULL)
+    gcontext = (pcre2_general_context *)code;
+  return pcre2_match_data_create(((const pcre2_real_code *)code)->top_bracket + 1, gcontext);
 }
 
 
@@ -95,15 +111,13 @@ return pcre2_match_data_create(((pcre2_real_code *)code)->top_bracket + 1,
 PCRE2_EXP_DEFN void PCRE2_CALL_CONVENTION
 pcre2_match_data_free(pcre2_match_data *match_data)
 {
-if (match_data != NULL)
+  if (match_data != NULL)
   {
-  if (match_data->heapframes != NULL)
-    match_data->memctl.free(match_data->heapframes,
-      match_data->memctl.memory_data);
-  if ((match_data->flags & PCRE2_MD_COPIED_SUBJECT) != 0)
-    match_data->memctl.free((void *)match_data->subject,
-      match_data->memctl.memory_data);
-  match_data->memctl.free(match_data, match_data->memctl.memory_data);
+    if (match_data->heapframes != NULL)
+      match_data->memctl.free(match_data->heapframes, match_data->memctl.memory_data);
+    if ((match_data->flags & PCRE2_MD_COPIED_SUBJECT) != 0)
+      match_data->memctl.free((void *)match_data->subject, match_data->memctl.memory_data);
+    match_data->memctl.free(match_data, match_data->memctl.memory_data);
   }
 }
 
@@ -116,7 +130,8 @@ if (match_data != NULL)
 PCRE2_EXP_DEFN PCRE2_SPTR PCRE2_CALL_CONVENTION
 pcre2_get_mark(pcre2_match_data *match_data)
 {
-return match_data->mark;
+  PCRE2_ASSERT(match_data != NULL);
+  return match_data->mark;
 }
 
 
@@ -125,34 +140,52 @@ return match_data->mark;
 *          Get pointer to ovector                *
 *************************************************/
 
-PCRE2_EXP_DEFN PCRE2_SIZE * PCRE2_CALL_CONVENTION
+PCRE2_EXP_DEFN PCRE2_SIZE *PCRE2_CALL_CONVENTION
 pcre2_get_ovector_pointer(pcre2_match_data *match_data)
 {
-return match_data->ovector;
+  PCRE2_ASSERT(match_data != NULL);
+  return match_data->ovector;
 }
 
 
 
 /*************************************************
-*          Get number of ovector slots           *
+*          Get number of ovector pairs           *
 *************************************************/
 
 PCRE2_EXP_DEFN uint32_t PCRE2_CALL_CONVENTION
 pcre2_get_ovector_count(pcre2_match_data *match_data)
 {
-return match_data->oveccount;
+  PCRE2_ASSERT(match_data != NULL);
+  return match_data->oveccount;
 }
 
 
 
 /*************************************************
-*         Get starting code unit in match        *
+*       Get starting code-unit offset in match   *
 *************************************************/
 
 PCRE2_EXP_DEFN PCRE2_SIZE PCRE2_CALL_CONVENTION
 pcre2_get_startchar(pcre2_match_data *match_data)
 {
-return match_data->startchar;
+  PCRE2_ASSERT(match_data != NULL);
+  return match_data->startchar;
+}
+
+
+
+/*************************************************
+*             Get subject                        *
+*************************************************/
+
+PCRE2_EXP_DEFN PCRE2_SPTR PCRE2_CALL_CONVENTION
+pcre2_get_subject(pcre2_match_data *match_data, PCRE2_SIZE *lengthptr)
+{
+  PCRE2_ASSERT(match_data != NULL);
+  if (lengthptr != NULL)
+    *lengthptr = match_data->subject_length;
+  return match_data->subject;
 }
 
 
@@ -164,8 +197,21 @@ return match_data->startchar;
 PCRE2_EXP_DEFN PCRE2_SIZE PCRE2_CALL_CONVENTION
 pcre2_get_match_data_size(pcre2_match_data *match_data)
 {
-return offsetof(pcre2_match_data, ovector) +
-  2 * (match_data->oveccount) * sizeof(PCRE2_SIZE);
+  PCRE2_ASSERT(match_data != NULL);
+  return offsetof(pcre2_match_data, ovector) + 2 * (match_data->oveccount) * sizeof(PCRE2_SIZE);
+}
+
+
+
+/*************************************************
+*             Get heapframes size                *
+*************************************************/
+
+PCRE2_EXP_DEFN PCRE2_SIZE PCRE2_CALL_CONVENTION
+pcre2_get_match_data_heapframes_size(pcre2_match_data *match_data)
+{
+  PCRE2_ASSERT(match_data != NULL);
+  return match_data->heapframes_size;
 }
 
 /* End of pcre2_match_data.c */

@@ -38,52 +38,14 @@ POSSIBILITY OF SUCH DAMAGE.
 -----------------------------------------------------------------------------
 */
 
+
 /* This module contains internal functions for comparing and finding the length
 of strings. These are used instead of strcmp() etc because the standard
 functions work only on 8-bit data. */
 
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
-
 #include "pcre2_internal.h"
 
-
-/*************************************************
-*    Emulated memmove() for systems without it   *
-*************************************************/
-
-/* This function can make use of bcopy() if it is available. Otherwise do it by
-steam, as there some non-Unix environments that lack both memmove() and
-bcopy(). */
-
-#if !defined(VPCOMPAT) && !defined(HAVE_MEMMOVE)
-void *
-PRIV(memmove)(void *d, const void *s, size_t n)
-{
-#ifdef HAVE_BCOPY
-bcopy(s, d, n);
-return d;
-#else
-size_t i;
-unsigned char *dest = (unsigned char *)d;
-const unsigned char *src = (const unsigned char *)s;
-if (dest > src)
-  {
-  dest += n;
-  src += n;
-  for (i = 0; i < n; ++i) *(--dest) = *(--src);
-  return (void *)dest;
-  }
-else
-  {
-  for (i = 0; i < n; ++i) *dest++ = *src++;
-  return (void *)(dest - n);
-  }
-#endif   /* not HAVE_BCOPY */
-}
-#endif   /* not VPCOMPAT && not HAVE_MEMMOVE */
 
 
 /*************************************************
@@ -101,14 +63,16 @@ Returns:      0, 1, or -1
 int
 PRIV(strcmp)(PCRE2_SPTR str1, PCRE2_SPTR str2)
 {
-PCRE2_UCHAR c1, c2;
-while (*str1 != '\0' || *str2 != '\0')
+  PCRE2_UCHAR c1, c2;
+  while (*str1 != '\0' || *str2 != '\0')
   {
-  c1 = *str1++;
-  c2 = *str2++;
-  if (c1 != c2) return ((c1 > c2) << 1) - 1;
+    c1 = *str1++;
+    c2 = *str2++;
+    if (c1 != c2)
+      return ((c1 > c2) << 1) - 1;
   }
-return 0;
+
+  return 0;
 }
 
 
@@ -129,14 +93,16 @@ Returns:      0, 1, or -1
 int
 PRIV(strcmp_c8)(PCRE2_SPTR str1, const char *str2)
 {
-PCRE2_UCHAR c1, c2;
-while (*str1 != '\0' || *str2 != '\0')
+  PCRE2_UCHAR c1, c2;
+  while (*str1 != '\0' || *str2 != '\0')
   {
-  c1 = *str1++;
-  c2 = *str2++;
-  if (c1 != c2) return ((c1 > c2) << 1) - 1;
+    c1 = *str1++;
+    c2 = *str2++;
+    if (c1 != c2)
+      return ((c1 > c2) << 1) - 1;
   }
-return 0;
+
+  return 0;
 }
 
 
@@ -156,14 +122,16 @@ Returns:      0, 1, or -1
 int
 PRIV(strncmp)(PCRE2_SPTR str1, PCRE2_SPTR str2, size_t len)
 {
-PCRE2_UCHAR c1, c2;
-for (; len > 0; len--)
+  PCRE2_UCHAR c1, c2;
+  for (; len > 0; len--)
   {
-  c1 = *str1++;
-  c2 = *str2++;
-  if (c1 != c2) return ((c1 > c2) << 1) - 1;
+    c1 = *str1++;
+    c2 = *str2++;
+    if (c1 != c2)
+      return ((c1 > c2) << 1) - 1;
   }
-return 0;
+
+  return 0;
 }
 
 
@@ -185,14 +153,16 @@ Returns:      0, 1, or -1
 int
 PRIV(strncmp_c8)(PCRE2_SPTR str1, const char *str2, size_t len)
 {
-PCRE2_UCHAR c1, c2;
-for (; len > 0; len--)
+  PCRE2_UCHAR c1, c2;
+  for (; len > 0; len--)
   {
-  c1 = *str1++;
-  c2 = *str2++;
-  if (c1 != c2) return ((c1 > c2) << 1) - 1;
+    c1 = *str1++;
+    c2 = *str2++;
+    if (c1 != c2)
+      return ((c1 > c2) << 1) - 1;
   }
-return 0;
+
+  return 0;
 }
 
 
@@ -208,9 +178,10 @@ Returns:     the length
 PCRE2_SIZE
 PRIV(strlen)(PCRE2_SPTR str)
 {
-PCRE2_SIZE c = 0;
-while (*str++ != 0) c++;
-return c;
+  PCRE2_SIZE c = 0;
+  while (*str++ != 0)
+    c++;
+  return c;
 }
 
 
@@ -228,10 +199,11 @@ Returns:   the number of code units used (excluding trailing zero)
 PCRE2_SIZE
 PRIV(strcpy_c8)(PCRE2_UCHAR *str1, const char *str2)
 {
-PCRE2_UCHAR *t = str1;
-while (*str2 != 0) *t++ = *str2++;
-*t = 0;
-return t - str1;
+  PCRE2_UCHAR *t = str1;
+  while (*str2 != 0)
+    *t++ = *str2++;
+  *t = 0;
+  return t - str1;
 }
 
 /* End of pcre2_string_utils.c */

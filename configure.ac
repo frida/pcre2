@@ -9,23 +9,29 @@ dnl The PCRE2_PRERELEASE feature is for identifying release candidates. It might
 dnl be defined as -RC2, for example. For real releases, it should be empty.
 
 m4_define(pcre2_major, [10])
-m4_define(pcre2_minor, [41])
-m4_define(pcre2_prerelease, [])
-m4_define(pcre2_date, [2022-xx-xx])
+m4_define(pcre2_minor, [50])
+m4_define(pcre2_prerelease, [-DEV])
+m4_define(pcre2_date, [2026-11-31])
 
 # Libtool shared library interface versions (current:revision:age)
-m4_define(libpcre2_8_version,     [11:0:11])
-m4_define(libpcre2_16_version,    [11:0:11])
-m4_define(libpcre2_32_version,    [11:0:11])
-m4_define(libpcre2_posix_version, [3:2:0])
+m4_define(libpcre2_8_version,     [17:0:17])
+m4_define(libpcre2_16_version,    [17:0:17])
+m4_define(libpcre2_32_version,    [17:0:17])
+m4_define(libpcre2_posix_version, [3:10:0])
 
-# NOTE: The CMakeLists.txt file searches for the above variables in the first
-# 50 lines of this file. Please update that if the variables above are moved.
-
-AC_PREREQ([2.60])
+AC_PREREQ([2.71])
 AC_INIT([PCRE2],pcre2_major.pcre2_minor[]pcre2_prerelease,[],[pcre2])
 AC_CONFIG_SRCDIR([src/pcre2.h.in])
-AM_INIT_AUTOMAKE([dist-bzip2 dist-zip])
+AM_INIT_AUTOMAKE([dist-bzip2 dist-zip foreign])
+ifelse(pcre2_prerelease, [-DEV],
+  [dnl For development builds, ./configure is not checked in to Git, so we are
+   dnl happy to have it regenerated as needed.
+   AM_MAINTAINER_MODE([enable])],
+  [dnl For a release build (or RC), the ./configure script we ship in the
+   dnl tarball (and check in to the Git tag) should not be regenerated
+   dnl implicitly. This is important if users want to check out a release tag
+   dnl using Git.
+   AM_MAINTAINER_MODE])
 m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES([yes])])
 AC_CONFIG_HEADERS(src/config.h)
 
@@ -43,6 +49,7 @@ AC_CONFIG_MACRO_DIR([m4])
 remember_set_CFLAGS="$CFLAGS"
 
 AC_PROG_CC
+AS_CASE([$ac_prog_cc_stdc], [c89|no], [AC_MSG_FAILURE([C compiler does not support C99])])
 AM_PROG_CC_C_O
 AC_USE_SYSTEM_EXTENSIONS
 
@@ -63,30 +70,95 @@ m4_ifdef([AM_PROG_AR], [AM_PROG_AR])
 # Check for a 64-bit integer type
 AC_TYPE_INT64_T
 
+# Check for xlc which has some special (broken/non-standard) behaviour on z/OS.
+PCRE2_ZOS_FIXES
+
 AC_PROG_INSTALL
-LT_INIT([win32-dll])
 AC_PROG_LN_S
+
+# As well as LT_INIT, we use LT_OUTPUT so that PCRE2_CHECK_VSCRIPT can invoke
+# libtool to test version scripts correctly.
+LT_INIT([win32-dll])
+LT_OUTPUT
+
+AC_SYS_LARGEFILE
 
 # Check for GCC visibility feature
 
 PCRE2_VISIBILITY
 
+# Check for the availability of -Wl,--version-script (or -Wl,-M on Solaris)
+
+PCRE2_CHECK_VSCRIPT
+
 # Check for Clang __attribute__((uninitialized)) feature
 
-AC_MSG_CHECKING([for __attribute__((uninitialized))])
 AC_LANG_PUSH([C])
 tmp_CFLAGS=$CFLAGS
-CFLAGS="$CFLAGS -Werror"
-AC_COMPILE_IFELSE([AC_LANG_PROGRAM(,
-                   [[char buf[128] __attribute__((uninitialized));(void)buf]])],
-                   [pcre2_cc_cv_attribute_uninitialized=yes],
-                   [pcre2_cc_cv_attribute_uninitialized=no])
-AC_MSG_RESULT([$pcre2_cc_cv_attribute_uninitialized])
+if test $WORKING_WERROR -eq 1; then
+  CFLAGS="$CFLAGS -Werror"
+fi
+AC_CACHE_CHECK([for __attribute__((uninitialized))], [pcre2_cc_cv_attribute_uninitialized], [
+  AC_COMPILE_IFELSE([AC_LANG_PROGRAM(,
+                     [[char buf[128] __attribute__((uninitialized));(void)buf]])],
+                     [pcre2_cc_cv_attribute_uninitialized=yes],
+                     [pcre2_cc_cv_attribute_uninitialized=no])
+])
 if test "$pcre2_cc_cv_attribute_uninitialized" = yes; then
   AC_DEFINE([HAVE_ATTRIBUTE_UNINITIALIZED], 1, [Define this if your compiler
              supports __attribute__((uninitialized))])
 fi
 CFLAGS=$tmp_CFLAGS
+AC_LANG_POP([C])
+
+# Check for the assume() builtin
+
+AC_LANG_PUSH([C])
+AC_CACHE_CHECK([for __assume()], [pcre2_cc_cv_builtin_assume], [
+  AC_LINK_IFELSE([AC_LANG_PROGRAM([[]], [[__assume(1)]])],
+    [pcre2_cc_cv_builtin_assume=yes],
+    [pcre2_cc_cv_builtin_assume=no])
+])
+if test "$pcre2_cc_cv_builtin_assume" = yes; then
+  AC_DEFINE([HAVE_BUILTIN_ASSUME], 1,
+    [Define this if your compiler provides __assume()])
+fi
+AC_LANG_POP([C])
+
+# Check for the mul_overflow() builtin
+
+AC_LANG_PUSH([C])
+AC_CACHE_CHECK([for __builtin_mul_overflow()], [pcre2_cc_cv_builtin_mul_overflow], [
+  AC_LINK_IFELSE([AC_LANG_PROGRAM([[
+    #ifdef HAVE_SYS_TYPES_H
+    #include <sys/types.h>
+    #endif
+    #include <stddef.h>
+
+    int a, b;
+    size_t m;
+  ]], [[__builtin_mul_overflow(a, b, &m)]])],
+  [pcre2_cc_cv_builtin_mul_overflow=yes],
+  [pcre2_cc_cv_builtin_mul_overflow=no])
+])
+if test "$pcre2_cc_cv_builtin_mul_overflow" = yes; then
+  AC_DEFINE([HAVE_BUILTIN_MUL_OVERFLOW], 1,
+    [Define this if your compiler provides __builtin_mul_overflow()])
+fi
+AC_LANG_POP([C])
+
+# Check for the unreachable() builtin
+
+AC_LANG_PUSH([C])
+AC_CACHE_CHECK([for __builtin_unreachable()], [pcre2_cc_cv_builtin_unreachable], [
+  AC_LINK_IFELSE([AC_LANG_PROGRAM([[int r;]], [[if (r) __builtin_unreachable()]])],
+    [pcre2_cc_cv_builtin_unreachable=yes],
+    [pcre2_cc_cv_builtin_unreachable=no])
+])
+if test "$pcre2_cc_cv_builtin_unreachable" = yes; then
+  AC_DEFINE([HAVE_BUILTIN_UNREACHABLE], 1,
+    [Define this if your compiler provides __builtin_unreachable()])
+fi
 AC_LANG_POP([C])
 
 # Versioning
@@ -162,17 +234,21 @@ AC_ARG_ENABLE(jit,
 
 # This code enables JIT if the hardware supports it.
 if test "$enable_jit" = "auto"; then
-  AC_LANG(C)
+  AC_LANG_PUSH([C])
   SAVE_CPPFLAGS=$CPPFLAGS
-  CPPFLAGS=-I$srcdir
-  AC_COMPILE_IFELSE([AC_LANG_SOURCE([[
-  #define SLJIT_CONFIG_AUTO 1
-  #include "src/sljit/sljitConfigInternal.h"
-  #if (defined SLJIT_CONFIG_UNSUPPORTED && SLJIT_CONFIG_UNSUPPORTED)
-  #error unsupported
-  #endif]])], enable_jit=yes, enable_jit=no)
+  CPPFLAGS="$CPPFLAGS -I$srcdir"
+  AC_CACHE_CHECK([whether JIT is supported on this hardware], [pcre2_cv_jit_supported], [
+    AC_COMPILE_IFELSE([AC_LANG_SOURCE([[
+      #define SLJIT_CONFIG_AUTO 1
+      #include "deps/sljit/sljit_src/sljitConfigCPU.h"
+      #if (defined SLJIT_CONFIG_UNSUPPORTED && SLJIT_CONFIG_UNSUPPORTED)
+      #error unsupported
+      #endif]]
+    )], [pcre2_cv_jit_supported=yes], [pcre2_cv_jit_supported=no])
+  ])
   CPPFLAGS=$SAVE_CPPFLAGS
-  echo checking for JIT support on this hardware... $enable_jit
+  AC_LANG_POP([C])
+  enable_jit=$pcre2_cv_jit_supported
 fi
 
 # Handle --enable-jit-sealloc (disabled by default and only experimental)
@@ -261,7 +337,7 @@ AC_ARG_ENABLE(never-backslash-C,
 # Handle --enable-ebcdic
 AC_ARG_ENABLE(ebcdic,
               AS_HELP_STRING([--enable-ebcdic],
-                             [assume EBCDIC coding rather than ASCII; incompatible with --enable-utf; use only in (uncommon) EBCDIC environments; it implies --enable-rebuild-chartables]),
+                             [assume EBCDIC coding rather than ASCII; incompatible with --enable-unicode; use only in (uncommon) EBCDIC environments]),
               , enable_ebcdic=no)
 
 # Handle --enable-ebcdic-nl25
@@ -269,6 +345,12 @@ AC_ARG_ENABLE(ebcdic-nl25,
               AS_HELP_STRING([--enable-ebcdic-nl25],
                              [set EBCDIC code for NL to 0x25 instead of 0x15; it implies --enable-ebcdic]),
               , enable_ebcdic_nl25=no)
+
+# Handle --enable-ebcdic-ignoring-compiler
+AC_ARG_ENABLE(ebcdic-ignoring-compiler,
+              AS_HELP_STRING([--enable-ebcdic-ignoring-compiler],
+                             [force EBCDIC 1047 using numeric literals rather than C character literals; it implies --enable-ebcdic]),
+              , enable_ebcdic_ignoring_compiler=no)
 
 # Handle --enable-pcre2grep-libz
 AC_ARG_ENABLE(pcre2grep-libz,
@@ -311,6 +393,12 @@ AC_ARG_WITH(link-size,
             AS_HELP_STRING([--with-link-size=N],
                            [internal link size (2, 3, or 4 allowed; default=2)]),
             , with_link_size=2)
+
+# Handle --with-max-varlookbehind=N
+AC_ARG_WITH(max-varlookbehind,
+            AS_HELP_STRING([--with-max-varlookbehind=N],
+                           [maximum length of variable lookbehind (default=255)]),
+            , with_max_varlookbehind=255)
 
 # Handle --with-parens-nest-limit=N
 AC_ARG_WITH(parens-nest-limit,
@@ -365,6 +453,12 @@ AC_ARG_ENABLE(fuzz_support,
                              [enable fuzzer support]),
               , enable_fuzz_support=no)
 
+# Handle --enable-diff-fuzz-support
+AC_ARG_ENABLE(diff_fuzz_support,
+              AS_HELP_STRING([--enable-diff-fuzz-support],
+                             [enable differential fuzzer support]),
+              , enable_diff_fuzz_support=no)
+
 # Handle --disable-stack-for-recursion
 # This option became obsolete at release 10.30.
 AC_ARG_ENABLE(stack-for-recursion,,
@@ -381,6 +475,16 @@ AC_ARG_ENABLE(percent-zt,
               AS_HELP_STRING([--disable-percent-zt],
                              [disable the use of z and t formatting modifiers]),
               , enable_percent_zt=auto)
+
+# Handle --enable-Werror/errwarn
+AC_ARG_ENABLE(Werror,
+              AS_HELP_STRING([--enable-Werror],
+                             [Add -Werror to CFLAGS (GCC/Clang style); if -Werror is passed to ./configure via CFLAGS it interferes with feature detection]),
+              , enable_Werror=no)
+AC_ARG_ENABLE(errwarn,
+              AS_HELP_STRING([--enable-errwarn],
+                             [Add -errwarn=%all to CFLAGS (Sun cc style)]),
+              , enable_errwarn=no)
 
 # Set the default value for pcre2-8
 if test "x$enable_pcre2_8" = "xunset"
@@ -427,19 +531,21 @@ case "$enable_newline" in
   ;;
 esac
 
-# --enable-ebcdic-nl25 implies --enable-ebcdic
-if test "x$enable_ebcdic_nl25" = "xyes"; then
+# --enable-ebcdic-nl25 and --enable-ebcdic-ignoring-compiler imply --enable-ebcdic
+if test "x$enable_ebcdic_nl25" = "xyes" -o "x$enable_ebcdic_ignoring_compiler" = "xyes"; then
   enable_ebcdic=yes
 fi
 
-# Make sure that if enable_ebcdic is set, rebuild_chartables is also enabled.
+# Make sure that if enable_ebcdic is set (without
+# enable_ebcdic_ignoring_compiler), rebuild_chartables is also enabled.
 # Also check that UTF support is not requested, because PCRE2 cannot handle
 # EBCDIC and UTF in the same build. To do so it would need to use different
-# character constants depending on the mode. Also, EBCDIC cannot be used with
-# 16-bit and 32-bit libraries.
-#
+# character constants depending on the mode.
+# Also, EBCDIC cannot be used with 16-bit and 32-bit libraries.
 if test "x$enable_ebcdic" = "xyes"; then
-  enable_rebuild_chartables=yes
+  if test "x$enable_ebcdic_ignoring_compiler" != "xyes"; then
+    enable_rebuild_chartables=yes
+  fi
   if test "x$enable_unicode" = "xyes"; then
     AC_MSG_ERROR([support for EBCDIC and Unicode cannot be enabled at the same time])
   fi
@@ -478,14 +584,10 @@ Boolean macros such as HAVE_STDLIB_H and SUPPORT_PCRE2_8 should either be
 defined (conventionally to 1) for TRUE, and not defined at all for FALSE. All
 such macros are listed as a commented #undef in config.h.generic. Macros such
 as MATCH_LIMIT, whose actual value is relevant, have defaults defined, but are
-surrounded by #ifndef/#endif lines so that the value can be overridden by -D.
-
-PCRE2 uses memmove() if HAVE_MEMMOVE is defined; otherwise it uses bcopy() if
-HAVE_BCOPY is defined. If your system has neither bcopy() nor memmove(), make
-sure both macros are undefined; an emulation function will then be used. */])
+surrounded by #ifndef/#endif lines so that the value can be overridden by -D. */])
 
 # Checks for header files.
-AC_CHECK_HEADERS(limits.h sys/types.h sys/stat.h dirent.h)
+AC_CHECK_HEADERS(assert.h limits.h sys/types.h sys/stat.h dirent.h)
 AC_CHECK_HEADERS([windows.h], [HAVE_WINDOWS_H=1])
 AC_CHECK_HEADERS([sys/wait.h], [HAVE_SYS_WAIT_H=1])
 
@@ -493,39 +595,76 @@ AC_CHECK_HEADERS([sys/wait.h], [HAVE_SYS_WAIT_H=1])
 AM_CONDITIONAL(WITH_PCRE2_8, test "x$enable_pcre2_8" = "xyes")
 AM_CONDITIONAL(WITH_PCRE2_16, test "x$enable_pcre2_16" = "xyes")
 AM_CONDITIONAL(WITH_PCRE2_32, test "x$enable_pcre2_32" = "xyes")
-AM_CONDITIONAL(WITH_DEBUG, test "x$enable_debug" = "xyes")
 AM_CONDITIONAL(WITH_REBUILD_CHARTABLES, test "x$enable_rebuild_chartables" = "xyes")
 AM_CONDITIONAL(WITH_JIT, test "x$enable_jit" = "xyes")
 AM_CONDITIONAL(WITH_UNICODE, test "x$enable_unicode" = "xyes")
+AM_CONDITIONAL(WITH_EBCDIC, test "x$enable_ebcdic" = "xyes")
+AM_CONDITIONAL(WITH_EBCDIC_NL25, test "x$enable_ebcdic_nl25" = "xyes")
 AM_CONDITIONAL(WITH_VALGRIND, test "x$enable_valgrind" = "xyes")
 AM_CONDITIONAL(WITH_FUZZ_SUPPORT, test "x$enable_fuzz_support" = "xyes")
+AM_CONDITIONAL(WITH_DIFF_FUZZ_SUPPORT, test "x$enable_diff_fuzz_support" = "xyes")
 
 if test "$enable_fuzz_support" = "yes" -a "$enable_pcre2_8" = "no"; then
   echo "** ERROR: Fuzzer support requires the 8-bit library"
   exit 1
 fi
 
+if test "$enable_diff_fuzz_support" = "yes"; then
+  if test "$enable_fuzz_support" = "no"; then
+    echo "** ERROR: Differential fuzzing support requires fuzzing support"
+    exit 1
+  fi
+  if test "$enable_jit" = "no"; then
+    echo "** ERROR: Differential fuzzing support requires Just-in-Time compilation support"
+    exit 1
+  fi
+  AC_DEFINE([SUPPORT_DIFF_FUZZ], [], [
+    Define to any value to enable differential fuzzing support.])
+fi
+
 # Checks for typedefs, structures, and compiler characteristics.
 
-AC_C_CONST
 AC_TYPE_SIZE_T
 
 # Checks for library functions.
 
-AC_CHECK_FUNCS(bcopy memfd_create memmove mkostemp secure_getenv strerror)
-AC_MSG_CHECKING([for realpath])
-AC_LINK_IFELSE([AC_LANG_PROGRAM([[
-#include <stdlib.h>
-#include <limits.h>
-]],[[
-char buffer[PATH_MAX];
-realpath(".", buffer);
-]])],
-[AC_MSG_RESULT([yes])
- AC_DEFINE([HAVE_REALPATH], 1,
-  [Define to 1 if you have the `realpath' function.])
-],
-AC_MSG_RESULT([no]))
+AC_CHECK_FUNCS(memfd_create mkostemp secure_getenv setrlimit)
+
+AC_LANG_PUSH([C])
+AC_CACHE_CHECK([for standard C atomics], [pcre2_cv_c_atomics], [
+  AC_LINK_IFELSE([
+    AC_LANG_SOURCE([[
+      #ifdef __STDC_NO_ATOMICS__
+      #error "C compiler does not support standard C atomics"
+      #endif
+      #include <stdatomic.h>
+      int main(void) {
+        atomic_int value;
+        atomic_init(&value, 0);
+        return atomic_load(&value);
+      }
+    ]])
+  ], [pcre2_cv_c_atomics=yes], [pcre2_cv_c_atomics=no])
+])
+AS_IF([test "$pcre2_cv_c_atomics" = yes], [
+  AC_DEFINE([HAVE_STDATOMIC_H], 1, [Define to 1 if stardard (C11 or later) atomics are available.])
+])
+AC_LANG_POP([C])
+
+AC_LANG_PUSH([C])
+AC_CACHE_CHECK([for realpath], [pcre2_cv_func_realpath], [
+  AC_LINK_IFELSE([
+    AC_LANG_SOURCE([[
+      #include <stdlib.h>
+      #include <limits.h>
+      int main(int c, char *v[]) { char buf[PATH_MAX]; return realpath(v[c], buf) == NULL; }
+    ]])
+  ], [pcre2_cv_func_realpath=yes], [pcre2_cv_func_realpath=no])
+])
+AS_IF([test "$pcre2_cv_func_realpath" = yes], [
+  AC_DEFINE([HAVE_REALPATH], 1, [Define to 1 if you have the `realpath' function.])
+])
+AC_LANG_POP([C])
 
 # Check for the availability of libz (aka zlib)
 
@@ -554,19 +693,22 @@ AC_CHECK_HEADERS([bzlib.h], [HAVE_BZLIB_H=1])
 #
 # Custom test follows
 
-AC_MSG_CHECKING([for libbz2])
-OLD_LIBS="$LIBS"
-LIBS="$LIBS -lbz2"
-AC_LINK_IFELSE([AC_LANG_PROGRAM([[
-#ifdef HAVE_BZLIB_H
-#include <bzlib.h>
-#endif]],
-[[return (int)BZ2_bzopen("conftest", "rb");]])],
-[AC_MSG_RESULT([yes]);HAVE_LIBBZ2=1; break;],
-AC_MSG_RESULT([no]))
-LIBS="$OLD_LIBS"
+AC_LANG_PUSH([C])
+AC_CACHE_CHECK([for libbz2], [pcre2_cv_lib_bz2], [
+  OLD_LIBS="$LIBS"
+  LIBS="$LIBS -lbz2"
+  AC_LINK_IFELSE([AC_LANG_PROGRAM([[
+    #ifdef HAVE_BZLIB_H
+    #include <bzlib.h>
+    #endif]],
+    [[return (int)BZ2_bzopen("conftest", "rb");]])
+  ], [pcre2_cv_lib_bz2=yes], [pcre2_cv_lib_bz2=no])
+  LIBS="$OLD_LIBS"
+])
+AS_IF([test "$pcre2_cv_lib_bz2" = yes], [HAVE_LIBBZ2=1])
+AC_LANG_POP([C])
 
-# Check for the availabiity of libreadline
+# Check for the availability of libreadline
 
 if test "$enable_pcre2test_libreadline" = "yes"; then
  AC_CHECK_HEADERS([readline/readline.h], [HAVE_READLINE_H=1])
@@ -579,9 +721,9 @@ if test "$enable_pcre2test_libreadline" = "yes"; then
        [unset ac_cv_lib_readline_readline;
         AC_CHECK_LIB([readline], [readline], [LIBREADLINE="-lncurses"],
          [unset ac_cv_lib_readline_readline;
-	  AC_CHECK_LIB([readline], [readline], [LIBREADLINE="-lncursesw"],
+          AC_CHECK_LIB([readline], [readline], [LIBREADLINE="-lncursesw"],
            [unset ac_cv_lib_readline_readline;
-	    AC_CHECK_LIB([readline], [readline], [LIBREADLINE="-ltermcap"],
+            AC_CHECK_LIB([readline], [readline], [LIBREADLINE="-ltermcap"],
              [LIBREADLINE=""],
              [-ltermcap])],
            [-lncursesw])],
@@ -608,13 +750,34 @@ if test "$enable_pcre2test_libedit" = "yes"; then
   AC_CHECK_LIB([edit], [readline], [LIBEDIT="-ledit"])
 fi
 
+# Set up shared/static library flags
+
 PCRE2_STATIC_CFLAG=""
 if test "x$enable_shared" = "xno" ; then
   AC_DEFINE([PCRE2_STATIC], [1], [
-    Define to any value if linking statically (TODO: make nice with Libtool)])
+    Define to any value if linking statically. Ideally, if both static and
+    shared libraries are being built, then PCRE2_STATIC would be defined only
+    for the static build. Indeed, this is a requirement on Windows. With
+    Autoconf and libtool however, it is idiomatic to compile the sources once
+    to create both the static and shared library, so in this case, PCRE2_STATIC
+    should only be defined if no shared library is being built.])
   PCRE2_STATIC_CFLAG="-DPCRE2_STATIC"
 fi
 AC_SUBST(PCRE2_STATIC_CFLAG)
+
+PCRE2POSIX_CFLAG=""
+if test "x$enable_shared" = "xyes" ; then
+  AC_DEFINE([PCRE2POSIX_SHARED], [1], [
+    Define to any value if linking libpcre2-posix dynamically. Ideally, if both
+    static and shared libraries are being built, then PCRE2POSIX_SHARED would be
+    defined only for the shared build. Indeed, this is a requirement on Windows.
+    However, when building with Autoconf and libtool, we compile the sources once
+    only to create both the static and shared library, so in this case,
+    PCRE2POSIX_SHARED should only be defined if the shared library is being built,
+    regardless of whether or not the static library is also being built.])
+  PCRE2POSIX_CFLAG="-DPCRE2POSIX_SHARED"
+fi
+AC_SUBST(PCRE2POSIX_CFLAG)
 
 # Here is where PCRE2-specific defines are handled
 
@@ -777,6 +940,10 @@ AC_DEFINE_UNQUOTED([LINK_SIZE], [$with_link_size], [
   vast majority of cases. However, PCRE2 can also be compiled to use 3 or 4
   bytes instead. This allows for longer patterns in extreme cases.])
 
+AC_DEFINE_UNQUOTED([MAX_VARLOOKBEHIND], [$with_max_varlookbehind], [
+  The value of MAX_VARLOOKBEHIND specifies the default maximum length, in
+  characters, for a variable-length lookbehind assertion.])
+
 AC_DEFINE_UNQUOTED([PARENS_NEST_LIMIT], [$with_parens_nest_limit], [
   The value of PARENS_NEST_LIMIT specifies the maximum depth of nested
   parentheses (of any kind) in a pattern. This limits the amount of system
@@ -788,7 +955,7 @@ AC_DEFINE_UNQUOTED([MATCH_LIMIT], [$with_match_limit], [
   matching attempt. The value is also used to limit a loop counter in
   pcre2_dfa_match(). There is a runtime interface for setting a different
   limit. The limit exists in order to catch runaway regular expressions that
-  take for ever to determine that they do not match. The default is set very
+  take forever to determine that they do not match. The default is set very
   large so that it does not accidentally catch legitimate cases.])
 
 # --with-match-limit-recursion is an obsolete synonym for --with-match-limit-depth
@@ -823,7 +990,7 @@ AC_DEFINE_UNQUOTED([HEAP_LIMIT], [$with_heap_limit], [
   a pattern. It applies to both pcre2_match() and pcre2_dfa_match(). It does
   not apply to JIT matching. The value is in kibibytes (units of 1024 bytes).])
 
-AC_DEFINE([MAX_NAME_SIZE], [32], [
+AC_DEFINE([MAX_NAME_SIZE], [128], [
   This limit is parameterized just in case anybody ever wants to
   change it. Care must be taken if it is increased, because it guards
   against integer overflow caused by enormously large patterns.])
@@ -838,12 +1005,18 @@ AH_VERBATIM([PCRE2_EXP_DEFN], [
    Win32, and it needs some magic to be inserted before the definition
    of a function that is exported by the library, define this macro to
    contain the relevant magic. If you do not define this macro, a suitable
-    __declspec value is used for Windows systems; in other environments
-   "extern" is used for a C compiler and "extern C" for a C++ compiler.
+   __declspec value is used for Windows systems; in other environments
+   a compiler relevant "extern" is used with any "visibility" related
+   attributes from PCRE2_EXPORT included.
    This macro apears at the start of every exported function that is part
    of the external API. It does not appear on functions that are "external"
    in the C sense, but which are internal to the library. */
 #undef PCRE2_EXP_DEFN])
+
+AH_VERBATIM([PCRE2POSIX_EXP_DEFN], [
+/* See PCRE2_EXP_DEFN; but this is applied to functions in the libpcre2-posix
+   library. */
+#undef PCRE2POSIX_EXP_DEFN])
 
 if test "$enable_ebcdic" = "yes"; then
   AC_DEFINE_UNQUOTED([EBCDIC], [], [
@@ -852,7 +1025,7 @@ if test "$enable_ebcdic" = "yes"; then
     assumes that all input strings are in EBCDIC. If you do not define this
     macro, PCRE2 will assume input strings are ASCII or UTF-8/16/32 Unicode. It
     is not possible to build a version of PCRE2 that supports both EBCDIC and
-    UTF-8/16/32.])
+    ASCII or UTF-8/16/32.])
 fi
 
 if test "$enable_ebcdic_nl25" = "yes"; then
@@ -862,6 +1035,13 @@ if test "$enable_ebcdic_nl25" = "yes"; then
     that LF does in an ASCII/Unicode environment.])
 fi
 
+if test "$enable_ebcdic_ignoring_compiler" = "yes"; then
+  AC_DEFINE_UNQUOTED([EBCDIC_IGNORING_COMPILER], [], [
+    To force an EBCDIC environment, define this macro to make the core PCRE2
+    library functions use EBCDIC codepage 1047, regardless of whether the
+    compiler supports it using C character literals.])
+fi
+
 if test "$enable_valgrind" = "yes"; then
   AC_DEFINE_UNQUOTED([SUPPORT_VALGRIND], [], [
      Define to any value for valgrind support to find invalid memory reads.])
@@ -869,12 +1049,10 @@ fi
 
 # Platform specific issues
 NO_UNDEFINED=
-EXPORT_ALL_SYMBOLS=
 case $host_os in
   cygwin* | mingw* )
     if test X"$enable_shared" = Xyes; then
       NO_UNDEFINED="-no-undefined"
-      EXPORT_ALL_SYMBOLS="-Wl,--export-all-symbols"
     fi
     ;;
 esac
@@ -893,6 +1071,22 @@ EXTRA_LIBPCRE2_32_LDFLAGS="$EXTRA_LIBPCRE2_32_LDFLAGS \
 
 EXTRA_LIBPCRE2_POSIX_LDFLAGS="$EXTRA_LIBPCRE2_POSIX_LDFLAGS \
   $NO_UNDEFINED -version-info libpcre2_posix_version"
+
+# Append each library's version script, if the platform supports it.
+
+if test x$pcre2_check_vscript_flag != x ; then
+  EXTRA_LIBPCRE2_8_LDFLAGS="$EXTRA_LIBPCRE2_8_LDFLAGS \
+    -Wl,$pcre2_check_vscript_flag,\$(builddir)/src/libpcre2-8.sym"
+
+  EXTRA_LIBPCRE2_16_LDFLAGS="$EXTRA_LIBPCRE2_16_LDFLAGS \
+    -Wl,$pcre2_check_vscript_flag,\$(builddir)/src/libpcre2-16.sym"
+
+  EXTRA_LIBPCRE2_32_LDFLAGS="$EXTRA_LIBPCRE2_32_LDFLAGS \
+    -Wl,$pcre2_check_vscript_flag,\$(builddir)/src/libpcre2-32.sym"
+
+  EXTRA_LIBPCRE2_POSIX_LDFLAGS="$EXTRA_LIBPCRE2_POSIX_LDFLAGS \
+    -Wl,$pcre2_check_vscript_flag,\$(builddir)/src/libpcre2-posix.sym"
+fi
 
 AC_SUBST(EXTRA_LIBPCRE2_8_LDFLAGS)
 AC_SUBST(EXTRA_LIBPCRE2_16_LDFLAGS)
@@ -1016,15 +1210,16 @@ fi # enable_coverage
 
 AM_CONDITIONAL([WITH_GCOV],[test "x$enable_coverage" = "xyes"])
 
-AC_MSG_CHECKING([whether Intel CET is enabled])
 AC_LANG_PUSH([C])
-AC_COMPILE_IFELSE([AC_LANG_PROGRAM(,
-                   [[#ifndef __CET__
-# error CET is not enabled
-#endif]])],
-                   [pcre2_cc_cv_intel_cet_enabled=yes],
-                   [pcre2_cc_cv_intel_cet_enabled=no])
-AC_MSG_RESULT([$pcre2_cc_cv_intel_cet_enabled])
+AC_CACHE_CHECK([whether Intel CET is enabled], [pcre2_cc_cv_intel_cet_enabled], [
+  AC_COMPILE_IFELSE([AC_LANG_SOURCE([[
+    #ifndef __CET__
+    # error CET is not enabled
+    #endif
+  ]])],
+  [pcre2_cc_cv_intel_cet_enabled=yes],
+  [pcre2_cc_cv_intel_cet_enabled=no])
+])
 if test "$pcre2_cc_cv_intel_cet_enabled" = yes; then
   CET_CFLAGS="-mshstk"
   AC_SUBST([CET_CFLAGS])
@@ -1035,24 +1230,46 @@ AC_LANG_POP([C])
 # Pass empty LIB_POSTFIX to *.pc files and pcre2-config here.
 AC_SUBST(LIB_POSTFIX)
 
+# Set the extra "local: *" symbol section conditionally for Solaris (effectively).
+
+if test x$pcre2_check_vscript_flag != x && test x$pcre2_check_vscript_no_star = xno; then
+  PCRE2_EXTRA_LOCAL_SYMS="  local: *;"
+else
+  PCRE2_EXTRA_LOCAL_SYMS=""
+fi
+AC_SUBST([PCRE2_EXTRA_LOCAL_SYMS])
+
 # Produce these files, in addition to config.h.
 
 AC_CONFIG_FILES(
-	Makefile
-	libpcre2-8.pc
-	libpcre2-16.pc
-	libpcre2-32.pc
-	libpcre2-posix.pc
-	pcre2-config
-	src/pcre2.h
-)
+  Makefile
+  libpcre2-8.pc
+  libpcre2-16.pc
+  libpcre2-32.pc
+  libpcre2-posix.pc
+  pcre2-config
+  src/pcre2.h
+  src/libpcre2-8.sym
+  src/libpcre2-16.sym
+  src/libpcre2-32.sym
+  src/libpcre2-posix.sym
+  )
 
 # Make the generated script files executable.
 AC_CONFIG_COMMANDS([script-chmod], [chmod a+x pcre2-config])
 
 # Make sure that pcre2_chartables.c is removed in case the method for
 # creating it was changed by reconfiguration.
-AC_CONFIG_COMMANDS([delete-old-chartables], [rm -f pcre2_chartables.c])
+AC_CONFIG_COMMANDS([delete-old-chartables], [rm -f src/pcre2_chartables.c])
+
+# Handle --enable-Werror/errwarn. This must come last, so that we don't mess
+# with any of the library-detection tests (or similar).
+if test "X$enable_Werror" = Xyes; then
+  CFLAGS="$CFLAGS -Werror"
+fi
+if test "X$enable_errwarn" = Xyes; then
+  CFLAGS="$CFLAGS -errwarn=%all"
+fi
 
 AC_OUTPUT
 
@@ -1073,6 +1290,13 @@ if test "$enable_ebcdic_nl25" = "yes"; then
   ebcdic_nl_code=0x25
 elif test "$enable_ebcdic" = "yes"; then
   ebcdic_nl_code=0x15
+fi
+
+with_symbol_versioning=n/a
+if test x$want_symvers != xyes; then
+  with_symbol_versioning=no
+elif test x$pcre2_check_vscript_flag != x; then
+  with_symbol_versioning=yes
 fi
 
 cat <<EOF
@@ -1100,15 +1324,18 @@ $PACKAGE-$VERSION configuration summary:
     \C is disabled ..................... : ${enable_never_backslash_C}
     EBCDIC coding ...................... : ${enable_ebcdic}
     EBCDIC code for NL ................. : ${ebcdic_nl_code}
+    EBCDIC coding ignoring compiler .... : ${enable_ebcdic_ignoring_compiler}
     Rebuild char tables ................ : ${enable_rebuild_chartables}
     Internal link size ................. : ${with_link_size}
+    Maximum variable lookbehind ........ : ${with_max_varlookbehind}
     Nested parentheses limit ........... : ${with_parens_nest_limit}
     Heap limit ......................... : ${with_heap_limit} kibibytes
     Match limit ........................ : ${with_match_limit}
     Match depth limit .................. : ${with_match_limit_depth}
     Build shared libs .................. : ${enable_shared}
+        with symbol versioning ......... : ${with_symbol_versioning}
     Build static libs .................. : ${enable_static}
-    Use JIT in pcre2grep ............... : ${enable_pcre2grep_jit}
+    Enable JIT in pcre2grep ............ : ${enable_pcre2grep_jit}
     Enable callouts in pcre2grep ....... : ${enable_pcre2grep_callout}
     Enable fork in pcre2grep callouts .. : ${enable_pcre2grep_callout_fork}
     Initial buffer size for pcre2grep .. : ${with_pcre2grep_bufsize}
@@ -1117,9 +1344,10 @@ $PACKAGE-$VERSION configuration summary:
     Link pcre2grep with libbz2 ......... : ${enable_pcre2grep_libbz2}
     Link pcre2test with libedit ........ : ${enable_pcre2test_libedit}
     Link pcre2test with libreadline .... : ${enable_pcre2test_libreadline}
-    Valgrind support ................... : ${enable_valgrind}
+    Enable Valgrind support ............ : ${enable_valgrind}
     Code coverage ...................... : ${enable_coverage}
     Fuzzer support ..................... : ${enable_fuzz_support}
+    Differential fuzzer support ........ : ${enable_diff_fuzz_support}
     Use %zu and %td .................... : ${enable_percent_zt}
 
 EOF

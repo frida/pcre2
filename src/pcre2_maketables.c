@@ -7,7 +7,7 @@ and semantics are as close as possible to those of the Perl 5 language.
 
                        Written by Philip Hazel
      Original API code Copyright (c) 1997-2012 University of Cambridge
-          New API code Copyright (c) 2016-2020 University of Cambridge
+          New API code Copyright (c) 2016-2024 University of Cambridge
 
 -----------------------------------------------------------------------------
 Redistribution and use in source and binary forms, with or without
@@ -45,11 +45,9 @@ own as part of the PCRE2 library. It is also included in the compilation of
 pcre2_dftables.c as a freestanding program, in which case the macro
 PCRE2_DFTABLES is defined. */
 
-#ifndef PCRE2_DFTABLES    /* Compiling the library */
-#  ifdef HAVE_CONFIG_H
-#  include "config.h"
-#  endif
-#  include "pcre2_internal.h"
+
+#ifndef PCRE2_DFTABLES /* Compiling the library */
+#include "pcre2_internal.h"
 #endif
 
 
@@ -66,94 +64,139 @@ supplied, but when PCRE2_DFTABLES is defined (when compiling the pcre2_dftables
 freestanding auxiliary program) malloc() is used, and the function has a
 different name so as not to clash with the prototype in pcre2.h.
 
-Arguments:   none when PCRE2_DFTABLES is defined
+Arguments:   pointers to character-transforming functions when PCRE2_DFTABLES is
+             defined;
                else a PCRE2 general context or NULL
-Returns:     pointer to the contiguous block of data
+Returns:     pointer to the contiguous block of data;
                else NULL if memory allocation failed
 */
 
-#ifdef PCRE2_DFTABLES  /* Included in freestanding pcre2_dftables program */
-static const uint8_t *maketables(void)
+#ifdef PCRE2_DFTABLES /* Included in freestanding pcre2_dftables program */
+static const uint8_t *
+maketables(int (*charfn_to)(int), int (*charfn_from)(int))
 {
-uint8_t *yield = (uint8_t *)malloc(TABLES_LENGTH);
+  uint8_t *yield = (uint8_t *)malloc(TABLES_LENGTH);
 
-#else  /* Not PCRE2_DFTABLES, that is, compiling the library */
-PCRE2_EXP_DEFN const uint8_t * PCRE2_CALL_CONVENTION
+#else /* Not PCRE2_DFTABLES, that is, compiling the library */
+PCRE2_EXP_DEFN const uint8_t *PCRE2_CALL_CONVENTION
 pcre2_maketables(pcre2_general_context *gcontext)
 {
-uint8_t *yield = (uint8_t *)((gcontext != NULL)?
-  gcontext->memctl.malloc(TABLES_LENGTH, gcontext->memctl.memory_data) :
-  malloc(TABLES_LENGTH));
-#endif  /* PCRE2_DFTABLES */
+  uint8_t *yield =
+      (uint8_t *)((gcontext != NULL)
+                      ? gcontext->memctl.malloc(TABLES_LENGTH, gcontext->memctl.memory_data)
+                      : malloc(TABLES_LENGTH));
 
-int i;
-uint8_t *p;
+#define charfn_to(c)   (c)
+#define charfn_from(c) (c)
+#endif /* PCRE2_DFTABLES */
 
-if (yield == NULL) return NULL;
-p = yield;
+  if (yield == NULL)
+    return NULL;
 
-/* First comes the lower casing table */
+  uint8_t *p = yield;
 
-for (i = 0; i < 256; i++) *p++ = tolower(i);
+  /* First comes the lower casing table */
 
-/* Next the case-flipping table */
-
-for (i = 0; i < 256; i++) *p++ = islower(i)? toupper(i) : tolower(i);
-
-/* Then the character class tables. Don't try to be clever and save effort on
-exclusive ones - in some locales things may be different.
-
-Note that the table for "space" includes everything "isspace" gives, including
-VT in the default locale. This makes it work for the POSIX class [:space:].
-From PCRE1 release 8.34 and for all PCRE2 releases it is also correct for Perl
-space, because Perl added VT at release 5.18.
-
-Note also that it is possible for a character to be alnum or alpha without
-being lower or upper, such as "male and female ordinals" (\xAA and \xBA) in the
-fr_FR locale (at least under Debian Linux's locales as of 12/2005). So we must
-test for alnum specially. */
-
-memset(p, 0, cbit_length);
-for (i = 0; i < 256; i++)
+  for (int i = 0; i < 256; i++)
   {
-  if (isdigit(i))  p[cbit_digit  + i/8] |= 1u << (i&7);
-  if (isupper(i))  p[cbit_upper  + i/8] |= 1u << (i&7);
-  if (islower(i))  p[cbit_lower  + i/8] |= 1u << (i&7);
-  if (isalnum(i))  p[cbit_word   + i/8] |= 1u << (i&7);
-  if (i == '_')    p[cbit_word   + i/8] |= 1u << (i&7);
-  if (isspace(i))  p[cbit_space  + i/8] |= 1u << (i&7);
-  if (isxdigit(i)) p[cbit_xdigit + i/8] |= 1u << (i&7);
-  if (isgraph(i))  p[cbit_graph  + i/8] |= 1u << (i&7);
-  if (isprint(i))  p[cbit_print  + i/8] |= 1u << (i&7);
-  if (ispunct(i))  p[cbit_punct  + i/8] |= 1u << (i&7);
-  if (iscntrl(i))  p[cbit_cntrl  + i/8] |= 1u << (i&7);
-  }
-p += cbit_length;
-
-/* Finally, the character type table. In this, we used to exclude VT from the
-white space chars, because Perl didn't recognize it as such for \s and for
-comments within regexes. However, Perl changed at release 5.18, so PCRE1
-changed at release 8.34 and it's always been this way for PCRE2. */
-
-for (i = 0; i < 256; i++)
-  {
-  int x = 0;
-  if (isspace(i)) x += ctype_space;
-  if (isalpha(i)) x += ctype_letter;
-  if (islower(i)) x += ctype_lcletter;
-  if (isdigit(i)) x += ctype_digit;
-  if (isalnum(i) || i == '_') x += ctype_word;
-  *p++ = x;
+    int c = charfn_from(tolower(charfn_to(i)));
+    /* LCOV_EXCL_START - toupper/tolower are specified to return unsigned-char
+    values or EOF in the supported locales. */
+    if (c >= 256)
+      c = i;
+    /* LCOV_EXCL_STOP */
+    *p++ = c;
   }
 
-return yield;
+  /* Next the case-flipping table */
+
+  for (int i = 0; i < 256; i++)
+  {
+    int c = charfn_from(islower(charfn_to(i)) ? toupper(charfn_to(i)) : tolower(charfn_to(i)));
+    /* LCOV_EXCL_START - toupper/tolower are specified to return unsigned-char
+    values or EOF in the supported locales. */
+    if (c >= 256)
+      c = i;
+    /* LCOV_EXCL_STOP */
+    *p++ = c;
+  }
+
+  /* Then the character class tables. Don't try to be clever and save effort on
+  exclusive ones - in some locales things may be different.
+
+  Note that the table for "space" includes everything "isspace" gives, including
+  VT in the default locale. This makes it work for the POSIX class [:space:].
+  From PCRE1 release 8.34 and for all PCRE2 releases it is also correct for Perl
+  space, because Perl added VT at release 5.18.
+
+  Note also that it is possible for a character to be alnum or alpha without
+  being lower or upper, such as "male and female ordinals" (\xAA and \xBA) in the
+  fr_FR locale (at least under Debian Linux's locales as of 12/2005). So we must
+  test for alnum specially. */
+
+  memset(p, 0, cbit_length);
+  for (int i = 0; i < 256; i++)
+  {
+    if (isdigit(charfn_to(i)))
+      p[cbit_digit + i / 8] |= 1u << (i & 7);
+    if (isupper(charfn_to(i)))
+      p[cbit_upper + i / 8] |= 1u << (i & 7);
+    if (islower(charfn_to(i)))
+      p[cbit_lower + i / 8] |= 1u << (i & 7);
+    if (isalnum(charfn_to(i)))
+      p[cbit_word + i / 8] |= 1u << (i & 7);
+    if (i == CHAR_UNDERSCORE)
+      p[cbit_word + i / 8] |= 1u << (i & 7);
+    if (isspace(charfn_to(i)))
+      p[cbit_space + i / 8] |= 1u << (i & 7);
+    if (isxdigit(charfn_to(i)))
+      p[cbit_xdigit + i / 8] |= 1u << (i & 7);
+    if (isgraph(charfn_to(i)))
+      p[cbit_graph + i / 8] |= 1u << (i & 7);
+    if (isprint(charfn_to(i)))
+      p[cbit_print + i / 8] |= 1u << (i & 7);
+    if (ispunct(charfn_to(i)))
+      p[cbit_punct + i / 8] |= 1u << (i & 7);
+    if (iscntrl(charfn_to(i)))
+      p[cbit_cntrl + i / 8] |= 1u << (i & 7);
+  }
+
+  p += cbit_length;
+
+  /* Finally, the character type table. In this, we used to exclude VT from the
+  white space chars, because Perl didn't recognize it as such for \s and for
+  comments within regexes. However, Perl changed at release 5.18, so PCRE1
+  changed at release 8.34 and it's always been this way for PCRE2. */
+
+  for (int i = 0; i < 256; i++)
+  {
+    int x = 0;
+    if (isspace(charfn_to(i)))
+      x += ctype_space;
+    if (isalpha(charfn_to(i)))
+      x += ctype_letter;
+    if (islower(charfn_to(i)))
+      x += ctype_lcletter;
+    if (isdigit(charfn_to(i)))
+      x += ctype_digit;
+    if (isalnum(charfn_to(i)) || i == CHAR_UNDERSCORE)
+      x += ctype_word;
+    *p++ = x;
+  }
+
+  return yield;
 }
 
-#ifndef PCRE2_DFTABLES   /* Compiling the library */
+#ifndef PCRE2_DFTABLES /* Compiling the library */
+#undef charfn_to
+#undef charfn_from
+
 PCRE2_EXP_DEFN void PCRE2_CALL_CONVENTION
 pcre2_maketables_free(pcre2_general_context *gcontext, const uint8_t *tables)
 {
-  if (gcontext)
+  if (tables == NULL)
+    return;
+  if (gcontext != NULL)
     gcontext->memctl.free((void *)tables, gcontext->memctl.memory_data);
   else
     free((void *)tables);

@@ -9,7 +9,7 @@ POSIX wrapper interface.
 
                        Written by Philip Hazel
      Original API code Copyright (c) 1997-2012 University of Cambridge
-          New API code Copyright (c) 2016-2019 University of Cambridge
+          New API code Copyright (c) 2016-2023 University of Cambridge
 
 -----------------------------------------------------------------------------
 Redistribution and use in source and binary forms, with or without
@@ -40,6 +40,8 @@ POSSIBILITY OF SUCH DAMAGE.
 -----------------------------------------------------------------------------
 */
 
+#ifndef PCRE2POSIX_H_IDEMPOTENT_GUARD
+#define PCRE2POSIX_H_IDEMPOTENT_GUARD
 
 /* Have to include stdlib.h in order to ensure that size_t is defined. */
 
@@ -48,50 +50,51 @@ POSSIBILITY OF SUCH DAMAGE.
 /* Allow for C++ users */
 
 #ifdef __cplusplus
-extern "C" {
+extern "C"
+{
 #endif
 
 /* Options, mostly defined by POSIX, but with some extras. */
 
-#define REG_ICASE     0x0001  /* Maps to PCRE2_CASELESS */
-#define REG_NEWLINE   0x0002  /* Maps to PCRE2_MULTILINE */
-#define REG_NOTBOL    0x0004  /* Maps to PCRE2_NOTBOL */
-#define REG_NOTEOL    0x0008  /* Maps to PCRE2_NOTEOL */
-#define REG_DOTALL    0x0010  /* NOT defined by POSIX; maps to PCRE2_DOTALL */
-#define REG_NOSUB     0x0020  /* Do not report what was matched */
-#define REG_UTF       0x0040  /* NOT defined by POSIX; maps to PCRE2_UTF */
-#define REG_STARTEND  0x0080  /* BSD feature: pass subject string by so,eo */
-#define REG_NOTEMPTY  0x0100  /* NOT defined by POSIX; maps to PCRE2_NOTEMPTY */
-#define REG_UNGREEDY  0x0200  /* NOT defined by POSIX; maps to PCRE2_UNGREEDY */
-#define REG_UCP       0x0400  /* NOT defined by POSIX; maps to PCRE2_UCP */
-#define REG_PEND      0x0800  /* GNU feature: pass end pattern by re_endp */
-#define REG_NOSPEC    0x1000  /* Maps to PCRE2_LITERAL */
+#define REG_ICASE    0x0001 /* Maps to PCRE2_CASELESS */
+#define REG_NEWLINE  0x0002 /* Maps to PCRE2_MULTILINE */
+#define REG_NOTBOL   0x0004 /* Maps to PCRE2_NOTBOL */
+#define REG_NOTEOL   0x0008 /* Maps to PCRE2_NOTEOL */
+#define REG_DOTALL   0x0010 /* NOT defined by POSIX; maps to PCRE2_DOTALL */
+#define REG_NOSUB    0x0020 /* Do not report what was matched */
+#define REG_UTF      0x0040 /* NOT defined by POSIX; maps to PCRE2_UTF */
+#define REG_STARTEND 0x0080 /* BSD feature: pass subject string by so,eo */
+#define REG_NOTEMPTY 0x0100 /* NOT defined by POSIX; maps to PCRE2_NOTEMPTY */
+#define REG_UNGREEDY 0x0200 /* NOT defined by POSIX; maps to PCRE2_UNGREEDY */
+#define REG_UCP      0x0400 /* NOT defined by POSIX; maps to PCRE2_UCP */
+#define REG_PEND     0x0800 /* GNU feature: pass end pattern by re_endp */
+#define REG_NOSPEC   0x1000 /* Maps to PCRE2_LITERAL */
 
 /* This is not used by PCRE2, but by defining it we make it easier
 to slot PCRE2 into existing programs that make POSIX calls. */
 
-#define REG_EXTENDED  0
+#define REG_EXTENDED 0
 
 /* Error values. Not all these are relevant or used by the wrapper. */
 
 enum {
-  REG_ASSERT = 1,  /* internal error ? */
-  REG_BADBR,       /* invalid repeat counts in {} */
-  REG_BADPAT,      /* pattern error */
-  REG_BADRPT,      /* ? * + invalid */
-  REG_EBRACE,      /* unbalanced {} */
-  REG_EBRACK,      /* unbalanced [] */
-  REG_ECOLLATE,    /* collation error - not relevant */
-  REG_ECTYPE,      /* bad class */
-  REG_EESCAPE,     /* bad escape sequence */
-  REG_EMPTY,       /* empty expression */
-  REG_EPAREN,      /* unbalanced () */
-  REG_ERANGE,      /* bad range inside [] */
-  REG_ESIZE,       /* expression too big */
-  REG_ESPACE,      /* failed to get memory */
-  REG_ESUBREG,     /* bad back reference */
-  REG_INVARG,      /* bad argument */
-  REG_NOMATCH      /* match failed */
+  REG_ASSERT = 1, // internal error ?
+  REG_BADBR,      // invalid repeat counts in {}
+  REG_BADPAT,     // pattern error
+  REG_BADRPT,     // ? * + invalid
+  REG_EBRACE,     // unbalanced {}
+  REG_EBRACK,     // unbalanced []
+  REG_ECOLLATE,   // collation error - not relevant
+  REG_ECTYPE,     // bad class
+  REG_EESCAPE,    // bad escape sequence
+  REG_EMPTY,      // empty expression
+  REG_EPAREN,     // unbalanced ()
+  REG_ERANGE,     // bad range inside []
+  REG_ESIZE,      // expression too big
+  REG_ESPACE,     // failed to get memory
+  REG_ESUBREG,    // bad back reference
+  REG_INVARG,     // bad argument
+  REG_NOMATCH     // match failed
 };
 
 
@@ -119,23 +122,31 @@ typedef struct {
 /* When an application links to a PCRE2 DLL in Windows, the symbols that are
 imported have to be identified as such. When building PCRE2, the appropriate
 export settings are needed, and are set in pcre2posix.c before including this
-file. */
+file. So, we don't change existing definitions of PCRE2POSIX_EXP_DECL.
 
-#if defined(_WIN32) && !defined(PCRE2_STATIC) && !defined(PCRE2POSIX_EXP_DECL)
-#  define PCRE2POSIX_EXP_DECL  extern __declspec(dllimport)
-#  define PCRE2POSIX_EXP_DEFN  __declspec(dllimport)
-#endif
-
-/* By default, we use the standard "extern" declarations. */
+By default, we use the standard "extern" declarations. */
 
 #ifndef PCRE2POSIX_EXP_DECL
-#  ifdef __cplusplus
-#    define PCRE2POSIX_EXP_DECL  extern "C"
-#    define PCRE2POSIX_EXP_DEFN  extern "C"
+#  if defined(_WIN32) && defined(PCRE2POSIX_SHARED)
+#    define PCRE2POSIX_EXP_DECL extern __declspec(dllimport)
 #  else
-#    define PCRE2POSIX_EXP_DECL  extern
-#    define PCRE2POSIX_EXP_DEFN  extern
+#    define PCRE2POSIX_EXP_DECL extern
 #  endif
+#endif
+
+/* When compiling with the MSVC compiler, it is sometimes necessary to include
+a "calling convention" before exported function names. For example:
+
+  void __cdecl function(....)
+
+might be needed. In order to make this easy, all the exported functions have
+PCRE2_CALL_CONVENTION just before their names.
+
+PCRE2 normally uses the platform's standard calling convention, so this should
+not be set unless you know you need it. */
+
+#ifndef PCRE2_CALL_CONVENTION
+#  define PCRE2_CALL_CONVENTION
 #endif
 
 /* The functions. The actual code is in functions with pcre2_xxx names for
@@ -144,11 +155,19 @@ regex functions. It's done this way to ensure to they are always linked from
 the PCRE2 library and not by accident from elsewhere (regex_t differs in size
 elsewhere). */
 
-PCRE2POSIX_EXP_DECL int PCRE2_CALL_CONVENTION pcre2_regcomp(regex_t *, const char *, int);
-PCRE2POSIX_EXP_DECL int PCRE2_CALL_CONVENTION pcre2_regexec(const regex_t *, const char *, size_t,
-                     regmatch_t *, int);
-PCRE2POSIX_EXP_DECL size_t PCRE2_CALL_CONVENTION pcre2_regerror(int, const regex_t *, char *, size_t);
-PCRE2POSIX_EXP_DECL void PCRE2_CALL_CONVENTION pcre2_regfree(regex_t *);
+PCRE2POSIX_EXP_DECL int PCRE2_CALL_CONVENTION
+pcre2_regcomp(regex_t *preg, const char *pattern, int cflags);
+
+PCRE2POSIX_EXP_DECL int PCRE2_CALL_CONVENTION
+pcre2_regexec(const regex_t *preg, const char *string, size_t nmatch,
+              regmatch_t *pmatch, int eflags);
+
+PCRE2POSIX_EXP_DECL size_t PCRE2_CALL_CONVENTION
+pcre2_regerror(int errcode, const regex_t *preg, char *errbuf,
+               size_t errbuf_size);
+
+PCRE2POSIX_EXP_DECL void PCRE2_CALL_CONVENTION
+pcre2_regfree(regex_t *preg);
 
 #define regcomp  pcre2_regcomp
 #define regexec  pcre2_regexec
@@ -164,7 +183,9 @@ them having to maintain their own patch, but are not documented by PCRE2. */
 #define PCRE2regfree  pcre2_regfree
 
 #ifdef __cplusplus
-}   /* extern "C" */
+} // extern "C"
 #endif
+
+#endif /* PCRE2POSIX_H_IDEMPOTENT_GUARD */
 
 /* End of pcre2posix.h */

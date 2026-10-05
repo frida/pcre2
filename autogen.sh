@@ -1,4 +1,4 @@
-#!/bin/sh
+#! /bin/sh
 
 # Running aclocal here first (as happened for a while) caused the macros that
 # libtoolize puts in the m4 directory to be newer than the aclocal.m4 file that
@@ -10,6 +10,7 @@
 # variants like glibtoolize (MacOSX) and libtoolize1x (FreeBSD)
 
 set +ex
+
 echo "Looking for a version of libtoolize (which can have different names)..."
 libtoolize=""
 for l in glibtoolize libtoolize15 libtoolize14 libtoolize ; do
@@ -27,7 +28,12 @@ if [ "x$libtoolize" = "x" ]; then
     exit 1
 fi
 
+$libtoolize --version | head -n1
+autoconf --version | head -n1
+automake --version | head -n1
+
 set -ex
+
 $libtoolize -c -f
 rm -rf autom4te.cache Makefile.in aclocal.m4
 aclocal --force -I m4
